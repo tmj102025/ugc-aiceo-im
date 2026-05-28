@@ -46,6 +46,7 @@ export async function POST(req: Request) {
 
   const {
     imageTemplateId,
+    videoTemplateId: videoTemplateIdInput,
     productName,
     mainHeading,
     subHeading,
@@ -70,8 +71,11 @@ export async function POST(req: Request) {
 
   const imgTplPicked = BUILT_IN_TEMPLATES[imageTemplateId] ?? BUILT_IN_TEMPLATES['ugc-review'];
   const imgTpl = resolveImageTemplate(imgTplPicked, BUILT_IN_TEMPLATES);
-  const videoTemplateId = pairedVideoFor(imgTpl.id);
-  const vidTplPicked = VIDEO_BUILT_IN_TEMPLATES[videoTemplateId] ?? VIDEO_BUILT_IN_TEMPLATES['video-ugc'];
+  const effectiveVideoId =
+    (typeof videoTemplateIdInput === 'string' && VIDEO_BUILT_IN_TEMPLATES[videoTemplateIdInput])
+      ? videoTemplateIdInput
+      : pairedVideoFor(imgTpl.id);
+  const vidTplPicked = VIDEO_BUILT_IN_TEMPLATES[effectiveVideoId] ?? VIDEO_BUILT_IN_TEMPLATES['video-ugc'];
   const vidTpl = resolveVideoTemplate(vidTplPicked, VIDEO_BUILT_IN_TEMPLATES);
 
   const imageUserMessage = buildImageUserMessage(imgTpl, {
