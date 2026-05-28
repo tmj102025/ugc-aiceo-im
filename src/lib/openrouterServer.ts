@@ -1,4 +1,4 @@
-import { resizeImage } from './imageUtils';
+// Server-only OpenRouter client (no DOM/canvas). Browser sends pre-resized image base64.
 
 const API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
@@ -16,8 +16,6 @@ export const FREE_TEXT_MODELS = [
   'qwen/qwen-2.5-72b-instruct:free',
 ];
 
-// Cheap paid fallbacks — used only if user toggles allowPaid and free tier exhausted.
-// Order = cheapest first. Per-call cost on a typical 2-3K token prompt = sub-cent.
 export const PAID_VISION_MODELS = [
   'google/gemini-2.5-flash-lite',
   'google/gemini-2.5-flash',
@@ -32,12 +30,6 @@ export const PAID_TEXT_MODELS = [
   'google/gemini-2.5-flash',
 ];
 
-export interface GenerateResult {
-  text: string;
-  model: string;
-  attempts: { model: string; ok: boolean; error?: string }[];
-}
-
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string | Array<
@@ -46,10 +38,15 @@ interface ChatMessage {
   >;
 }
 
+export interface GenerateResult {
+  text: string;
+  model: string;
+  attempts: { model: string; ok: boolean; error?: string }[];
+}
+
 function isRetryable(status: number, msg: string): boolean {
   if (status === 429 || status === 408 || status === 502 || status === 503 || status === 504) return true;
-  if (status === 404) return true;
-  if (status === 402) return true;
+  if (status === 404 || status === 402) return true;
   if (/rate.?limit|quota|temporar(?:y|ily)/i.test(msg)) return true;
   return false;
 }
@@ -75,7 +72,7 @@ async function callOne(args: {
       max_tokens: 4096,
     }),
   });
-  const body = await resp.json().catch(() => ({}));
+  const body: any = await resp.json().catch(() => ({}));
   if (!resp.ok) {
     const msg = body?.error?.message || `HTTP ${resp.status}`;
     const err: any = new Error(msg);
@@ -118,10 +115,10 @@ async function callWithRotation(args: {
     }
   }
   const detail = attempts.map((a) => `${a.model}: ${a.error ?? 'ok'}`).join(' | ');
-  throw new Error(`OpenRouter: ทุก model ฟรีล้มเหลว → ${detail} (เช็ค key หรือ daily quota)`);
+  throw new Error(`OpenRouter: ทุก model ล้มเหลว → ${detail}`);
 }
 
-export async function generateImagePromptOR(args: {
+export async function serverGenerateImagePrompt(args: {
   apiKey: string;
   productImageDataUrl: string;
   systemPrompt: string;
@@ -129,13 +126,12 @@ export async function generateImagePromptOR(args: {
   temperature?: number;
   allowPaid?: boolean;
 }): Promise<GenerateResult> {
-  const resized = await resizeImage(args.productImageDataUrl);
   const messages: ChatMessage[] = [
     { role: 'system', content: args.systemPrompt },
     {
       role: 'user',
       content: [
-        { type: 'image_url', image_url: { url: resized } },
+        { type: 'image_url', image_url: { url: args.productImageDataUrl } },
         { type: 'text', text: args.userMessage },
       ],
     },
@@ -149,7 +145,7 @@ export async function generateImagePromptOR(args: {
   });
 }
 
-export async function generateVideoPromptOR(args: {
+export async function serverGenerateVideoPrompt(args: {
   apiKey: string;
   systemPrompt: string;
   userMessage: string;

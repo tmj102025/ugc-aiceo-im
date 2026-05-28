@@ -1,29 +1,11 @@
 'use client';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { signOut } from 'next-auth/react';
-import { BUILT_IN_TEMPLATES } from '@/lib/data/promptTemplates';
-import { VIDEO_BUILT_IN_TEMPLATES } from '@/lib/data/videoPromptTemplates';
-import { COVER_COLOR_PRESETS } from '@/lib/data/coverColorPresets';
-import {
-  buildImageUserMessage,
-  buildVideoUserMessage,
-  resolveImageTemplate,
-  resolveVideoTemplate,
-  type Gender,
-} from '@/lib/promptBuilder';
-import { generateImagePromptOR, generateVideoPromptOR } from '@/lib/openrouterClient';
-import { fileToDataUrl } from '@/lib/imageUtils';
-import {
-  loadApiKey,
-  loadAllowPaid,
-  pushHistory,
-  loadHistory,
-  clearHistory,
-  type HistoryItem,
-} from '@/lib/storage';
+import { type Gender } from '@/lib/promptBuilder';
+import { fileToDataUrl, resizeImage } from '@/lib/imageUtils';
+import { pushHistory, loadHistory, clearHistory, type HistoryItem } from '@/lib/storage';
 import { ColorPresetPicker } from './ColorPresetPicker';
 import { TemplatePicker } from './TemplatePicker';
-import { ApiKeyModal } from './ApiKeyModal';
 
 interface Props {
   user: { email: string; name: string; picture: string };
@@ -48,20 +30,13 @@ export function Builder({ user }: Props) {
   const [usedModel, setUsedModel] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [keyOpen, setKeyOpen] = useState(false);
-  const [keySet, setKeySet] = useState(false);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setKeySet(Boolean(loadApiKey()));
     setHistory(loadHistory());
   }, []);
 
-  const colorPreset = useMemo(
-    () => COVER_COLOR_PRESETS.find((p) => p.id === colorPresetId) ?? null,
-    [colorPresetId],
-  );
   const templateId = mode === 'image' ? imageTemplateId : videoTemplateId;
 
   async function handleFile(file: File | null) {
@@ -81,12 +56,6 @@ export function Builder({ user }: Props) {
 
   async function handleGenerate() {
     setError('');
-    const apiKey = loadApiKey();
-    if (!apiKey) {
-      setKeyOpen(true);
-      setError('กรุณาตั้ง OpenRouter API key ก่อน');
-      return;
-    }
     if (!productName.trim()) {
       setError('กรุณาใส่ชื่อสินค้า');
       return;
@@ -98,65 +67,41 @@ export function Builder({ user }: Props) {
     setLoading(true);
     setUsedModel('');
     try {
-      const allowPaid = loadAllowPaid();
-      let result = '';
-      let usedModel = '';
-      if (mode === 'image') {
-        const tpl = resolveImageTemplate(BUILT_IN_TEMPLATES[imageTemplateId], BUILT_IN_TEMPLATES);
-        const userMessage = buildImageUserMessage(tpl, {
-          productName,
-          mainHeading,
-          subHeading,
-          hasPersonImage: false,
-          ugc: { gender, ageRange },
-          colorPreset,
-        });
-        const r = await generateImagePromptOR({
-          apiKey,
-          productImageDataUrl: productImage,
-          systemPrompt: tpl.systemPrompt ?? '',
-          userMessage,
-          temperature: tpl.settings.temperature ?? 0.7,
-          allowPaid,
-        });
-        result = r.text;
-        usedModel = r.model;
-      } else {
-        const tpl = resolveVideoTemplate(VIDEO_BUILT_IN_TEMPLATES[videoTemplateId], VIDEO_BUILT_IN_TEMPLATES);
-        const userMessage = buildVideoUserMessage(tpl, {
-          productName,
-          mainHeading,
-          subHeading,
-          hasPersonImage: false,
-          ugc: { gender, ageRange },
-          colorPreset,
-        });
-        const r = await generateVideoPromptOR({
-          apiKey,
-          systemPrompt: tpl.systemPrompt ?? '',
-          userMessage,
-          allowPaid,
-        });
-        result = r.text;
-        usedModel = r.model;
+      let imageDataUrl: string | undefined;
+      if (mode === 'image' && productImage) {
+        imageDataUrl = await resizeImage(productImage);
       }
-      setOutput(result);
-      setUsedModel(usedModel);
+      const resp = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode,
+          templateId,
+          productName,
+          mainHeading,
+          subHeading,
+          productImageDataUrl: imageDataUrl,
+          colorPresetId,
+          gender,
+          ageRange,
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        throw new Error(data?.error ?? `HTTP ${resp.status}`);
+      }
+      setOutput(data.text);
+      setUsedModel(data.model);
       const item: HistoryItem = {
         id: `h-${Date.now()}`,
         ts: Date.now(),
         type: mode,
         templateId,
         productName,
-        prompt: result,
+        prompt: data.text,
       };
       pushHistory(item);
       setHistory(loadHistory());
-      fetch('/api/lead/track', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ event: 'generate', email: user.email }),
-      }).catch(() => {});
     } catch (e: any) {
       setError(e?.message ?? 'เกิดข้อผิดพลาด');
     } finally {
@@ -181,9 +126,6 @@ export function Builder({ user }: Props) {
             <span className="chip">AiCEO</span>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => setKeyOpen(true)} className="btn btn-secondary !py-2 !text-sm">
-              {keySet ? '🔑 OpenRouter Key' : '⚠️ ตั้ง OpenRouter Key'}
-            </button>
             {user.picture ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={user.picture} alt="" className="w-8 h-8 rounded-full border border-line" />
@@ -412,7 +354,6 @@ export function Builder({ user }: Props) {
         </section>
       </main>
 
-      <ApiKeyModal open={keyOpen} onClose={() => setKeyOpen(false)} onSaved={() => setKeySet(true)} />
     </div>
   );
 }
