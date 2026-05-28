@@ -23,7 +23,6 @@ interface PromptResult {
 export function Builder({ user }: Props) {
   const [imageTemplateId, setImageTemplateId] = useState<string>('ugc-review');
   const [videoTemplateId, setVideoTemplateId] = useState<string>(() => pairedVideoFor('ugc-review'));
-  const [videoOverridden, setVideoOverridden] = useState(false);
   const [productName, setProductName] = useState('');
   const [mainHeading, setMainHeading] = useState('');
   const [subHeading, setSubHeading] = useState('');
@@ -45,22 +44,10 @@ export function Builder({ user }: Props) {
     setHistory(loadHistory());
   }, []);
 
-  // Auto-pair: when image style changes, update video style — unless user manually overrode it
+  // Auto-pair: image style → video style (via IMAGE_TO_VIDEO_MAP)
   useEffect(() => {
-    if (!videoOverridden) {
-      setVideoTemplateId(pairedVideoFor(imageTemplateId));
-    }
-  }, [imageTemplateId, videoOverridden]);
-
-  function pickVideoTemplate(id: string) {
-    setVideoTemplateId(id);
-    setVideoOverridden(true);
-  }
-
-  function resetVideoToAutoPair() {
-    setVideoOverridden(false);
     setVideoTemplateId(pairedVideoFor(imageTemplateId));
-  }
+  }, [imageTemplateId]);
 
   async function handleProductFile(file: File | null) {
     if (!file) return;
@@ -298,27 +285,8 @@ export function Builder({ user }: Props) {
           </div>
 
           <div>
-            <div className="label mb-1.5">🖼️ สไตล์ภาพ</div>
+            <div className="label mb-1.5">สไตล์ <span className="text-ink-mute font-normal">(จับคู่ image + video อัตโนมัติ)</span></div>
             <TemplatePicker mode="image" value={imageTemplateId} onChange={setImageTemplateId} />
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <div className="label">🎬 สไตล์วิดีโอ</div>
-              {videoOverridden && (
-                <button
-                  type="button"
-                  onClick={resetVideoToAutoPair}
-                  className="text-[10px] text-brand hover:underline"
-                >
-                  ↺ จับคู่อัตโนมัติ
-                </button>
-              )}
-              {!videoOverridden && (
-                <span className="text-[10px] text-ink-mute">จับคู่จากสไตล์ภาพ</span>
-              )}
-            </div>
-            <TemplatePicker mode="video" value={videoTemplateId} onChange={pickVideoTemplate} />
           </div>
 
           <div>
