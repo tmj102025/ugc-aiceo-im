@@ -276,30 +276,37 @@ export function Builder({ user }: Props) {
             <ColorPresetPicker value={colorPresetId} onChange={setColorPresetId} />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <div className="label mb-1.5">เพศนางแบบ</div>
-              <select
-                className="input"
-                value={gender}
-                onChange={(e) => setGender(e.target.value as Gender)}
-              >
-                <option value="female">ผู้หญิง</option>
-                <option value="male">ผู้ชาย</option>
-                <option value="random">สุ่ม</option>
-              </select>
+          {personImage ? (
+            <div className="rounded-lg bg-brand/10 border border-brand/30 text-ink px-3 py-2.5 text-xs leading-relaxed">
+              <b className="text-brand">✓ ใช้ใบหน้าจากรูปคนที่อัปโหลด</b>
+              <div className="text-ink-dim mt-0.5">เพศ + อายุ AI จะดูจากรูปเอง ไม่ต้องเลือก</div>
             </div>
-            <div>
-              <div className="label mb-1.5">อายุ</div>
-              <select className="input" value={ageRange} onChange={(e) => setAgeRange(e.target.value)}>
-                {AGE_RANGES.map((a) => (
-                  <option key={a} value={a}>
-                    {a === 'random' ? 'สุ่ม (18-55)' : a}
-                  </option>
-                ))}
-              </select>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <div className="label mb-1.5">เพศนางแบบ</div>
+                <select
+                  className="input"
+                  value={gender}
+                  onChange={(e) => setGender(e.target.value as Gender)}
+                >
+                  <option value="female">ผู้หญิง</option>
+                  <option value="male">ผู้ชาย</option>
+                  <option value="random">สุ่ม</option>
+                </select>
+              </div>
+              <div>
+                <div className="label mb-1.5">อายุ</div>
+                <select className="input" value={ageRange} onChange={(e) => setAgeRange(e.target.value)}>
+                  {AGE_RANGES.map((a) => (
+                    <option key={a} value={a}>
+                      {a === 'random' ? 'สุ่ม (18-55)' : a}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
-          </div>
+          )}
 
           {error && (
             <div className="rounded-lg bg-red-500/10 border border-red-500/30 text-red-300 text-sm px-3 py-2">

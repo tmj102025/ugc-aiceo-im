@@ -45,7 +45,9 @@ function buildPersonDescription(
   genderTextEn: string,
 ): string {
   if (hasPersonImage) {
-    return `คนในภาพ: ${genderText} (${genderTextEn}) - ใช้เฉพาะใบหน้าจากภาพที่แนบเท่านั้น (face reference only)`;
+    // Face is attached → use it as the source of truth for gender/age/ethnicity.
+    // Do NOT inject genderText (may contradict the actual face).
+    return `คนในภาพ: ใช้เฉพาะใบหน้าจากภาพที่แนบเท่านั้น (face reference only) — AI จะคงเพศและอายุของบุคคลในรูปไว้ และสร้างท่าทาง เสื้อผ้า ฉากใหม่ที่เหมาะกับสินค้า`;
   }
   const ageText =
     ugc.ageRange === 'random' ? 'สุ่ม (18-55 ปี)' : ugc.ageRange || 'ไม่ระบุ';
@@ -82,8 +84,12 @@ export function buildImageUserMessage(
   template: PromptTemplate,
   inputs: BuildInputs,
 ): string {
-  const genderText = getGenderText(inputs.ugc.gender);
-  const genderTextEn = getGenderTextEn(inputs.ugc.gender);
+  const genderText = inputs.hasPersonImage
+    ? 'บุคคลในรูป reference'
+    : getGenderText(inputs.ugc.gender);
+  const genderTextEn = inputs.hasPersonImage
+    ? 'the person from the reference image (preserve their gender and approximate age)'
+    : getGenderTextEn(inputs.ugc.gender);
   const personDescription = buildPersonDescription(
     inputs.hasPersonImage,
     inputs.ugc,
@@ -108,8 +114,12 @@ export function buildVideoUserMessage(
   template: VideoPromptTemplate,
   inputs: BuildInputs,
 ): string {
-  const genderText = getGenderText(inputs.ugc.gender);
-  const genderTextEn = getGenderTextEn(inputs.ugc.gender);
+  const genderText = inputs.hasPersonImage
+    ? 'บุคคลในรูป reference'
+    : getGenderText(inputs.ugc.gender);
+  const genderTextEn = inputs.hasPersonImage
+    ? 'the person from the reference image (preserve their gender and approximate age)'
+    : getGenderTextEn(inputs.ugc.gender);
   const personDescription = buildPersonDescription(
     inputs.hasPersonImage,
     inputs.ugc,
