@@ -1,4 +1,5 @@
-const KEY = 'ugc.gemini.key.v1';
+const KEY = 'ugc.openrouter.key.v1';
+const PAID_KEY = 'ugc.openrouter.allowPaid.v1';
 
 export function saveApiKey(key: string): void {
   if (typeof window === 'undefined') return;
@@ -21,6 +22,22 @@ export function clearApiKey(): void {
   try {
     window.localStorage.removeItem(KEY);
   } catch {}
+}
+
+export function saveAllowPaid(v: boolean): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(PAID_KEY, v ? '1' : '0');
+  } catch {}
+}
+
+export function loadAllowPaid(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(PAID_KEY) === '1';
+  } catch {
+    return false;
+  }
 }
 
 const HISTORY_KEY = 'ugc.history.v1';

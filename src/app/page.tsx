@@ -34,7 +34,7 @@ export default function Landing() {
           เข้าสู่ระบบด้วย Google
         </button>
         <p className="text-ink-mute text-xs mt-8">
-          ใช้ Gemini API key ส่วนตัวของคุณ · ไม่เก็บรูปสินค้าไว้บนเซิร์ฟเวอร์
+          ขับเคลื่อนด้วย OpenRouter (ฟรี + paid fallback) · auto-rotate 4 model · ไม่เก็บรูปสินค้าไว้บนเซิร์ฟเวอร์
         </p>
       </div>
     </main>

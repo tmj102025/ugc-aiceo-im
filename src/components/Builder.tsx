@@ -11,9 +11,16 @@ import {
   resolveVideoTemplate,
   type Gender,
 } from '@/lib/promptBuilder';
-import { generateImagePrompt, generateVideoPrompt } from '@/lib/geminiClient';
+import { generateImagePromptOR, generateVideoPromptOR } from '@/lib/openrouterClient';
 import { fileToDataUrl } from '@/lib/imageUtils';
-import { loadApiKey, pushHistory, loadHistory, clearHistory, type HistoryItem } from '@/lib/storage';
+import {
+  loadApiKey,
+  loadAllowPaid,
+  pushHistory,
+  loadHistory,
+  clearHistory,
+  type HistoryItem,
+} from '@/lib/storage';
 import { ColorPresetPicker } from './ColorPresetPicker';
 import { TemplatePicker } from './TemplatePicker';
 import { ApiKeyModal } from './ApiKeyModal';
@@ -38,6 +45,7 @@ export function Builder({ user }: Props) {
   const [gender, setGender] = useState<Gender>('female');
   const [ageRange, setAgeRange] = useState<string>('25-29');
   const [output, setOutput] = useState('');
+  const [usedModel, setUsedModel] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [keyOpen, setKeyOpen] = useState(false);
@@ -76,7 +84,7 @@ export function Builder({ user }: Props) {
     const apiKey = loadApiKey();
     if (!apiKey) {
       setKeyOpen(true);
-      setError('กรุณาตั้ง Gemini API key ก่อน');
+      setError('กรุณาตั้ง OpenRouter API key ก่อน');
       return;
     }
     if (!productName.trim()) {
@@ -88,8 +96,11 @@ export function Builder({ user }: Props) {
       return;
     }
     setLoading(true);
+    setUsedModel('');
     try {
+      const allowPaid = loadAllowPaid();
       let result = '';
+      let usedModel = '';
       if (mode === 'image') {
         const tpl = resolveImageTemplate(BUILT_IN_TEMPLATES[imageTemplateId], BUILT_IN_TEMPLATES);
         const userMessage = buildImageUserMessage(tpl, {
@@ -100,13 +111,16 @@ export function Builder({ user }: Props) {
           ugc: { gender, ageRange },
           colorPreset,
         });
-        result = await generateImagePrompt({
+        const r = await generateImagePromptOR({
           apiKey,
           productImageDataUrl: productImage,
           systemPrompt: tpl.systemPrompt ?? '',
           userMessage,
           temperature: tpl.settings.temperature ?? 0.7,
+          allowPaid,
         });
+        result = r.text;
+        usedModel = r.model;
       } else {
         const tpl = resolveVideoTemplate(VIDEO_BUILT_IN_TEMPLATES[videoTemplateId], VIDEO_BUILT_IN_TEMPLATES);
         const userMessage = buildVideoUserMessage(tpl, {
@@ -117,13 +131,17 @@ export function Builder({ user }: Props) {
           ugc: { gender, ageRange },
           colorPreset,
         });
-        result = await generateVideoPrompt({
+        const r = await generateVideoPromptOR({
           apiKey,
           systemPrompt: tpl.systemPrompt ?? '',
           userMessage,
+          allowPaid,
         });
+        result = r.text;
+        usedModel = r.model;
       }
       setOutput(result);
+      setUsedModel(usedModel);
       const item: HistoryItem = {
         id: `h-${Date.now()}`,
         ts: Date.now(),
@@ -164,7 +182,7 @@ export function Builder({ user }: Props) {
           </div>
           <div className="flex items-center gap-2">
             <button onClick={() => setKeyOpen(true)} className="btn btn-secondary !py-2 !text-sm">
-              {keySet ? '🔑 Gemini Key' : '⚠️ ตั้ง Gemini Key'}
+              {keySet ? '🔑 OpenRouter Key' : '⚠️ ตั้ง OpenRouter Key'}
             </button>
             {user.picture ? (
               // eslint-disable-next-line @next/next/no-img-element
@@ -333,7 +351,10 @@ export function Builder({ user }: Props) {
             <div className="flex items-center justify-between mb-3">
               <div>
                 <h2 className="font-bold text-lg">Prompt (ภาษาอังกฤษ)</h2>
-                <p className="text-xs text-ink-dim mt-0.5">คัดลอกแล้วนำไปวางใน Sora · Veo · MJ · Imagen · Kling</p>
+                <p className="text-xs text-ink-dim mt-0.5">
+                  คัดลอกแล้วนำไปวางใน Sora · Veo · MJ · Imagen · Kling
+                  {usedModel && <> · ใช้ <span className="text-brand font-mono">{usedModel}</span></>}
+                </p>
               </div>
               <button
                 onClick={copyOutput}
