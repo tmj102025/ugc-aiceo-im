@@ -2,34 +2,27 @@
 
 const API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
-// Verified against OpenRouter /api/v1/models — May 2026 snapshot
-export const FREE_VISION_MODELS = [
-  'google/gemma-4-31b-it:free',
-  'moonshotai/kimi-k2.6:free',
-  'google/gemma-4-26b-a4b-it:free',
-  'nvidia/nemotron-nano-12b-v2-vl:free',
-  'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
+// Gemini-only paid lineup — cheapest → best quality
+// Tim's preference: Thai language fidelity matters most → all Google Gemini family
+// Cost reference (~3K in + 500 out tokens per gen):
+//   gemini-2.0-flash-lite-001: $0.038¢ / 1.3 satang
+//   gemini-2.5-flash-lite:     $0.050¢ / 1.8 satang
+//   gemini-2.0-flash-001:      $0.050¢ / 1.8 satang
+//   gemini-2.5-flash:          $0.215¢ / 7.5 satang  ← best quality, still cheap
+const GEMINI_LADDER = [
+  'google/gemini-2.0-flash-lite-001',
+  'google/gemini-2.5-flash-lite',
+  'google/gemini-2.0-flash-001',
+  'google/gemini-2.5-flash',
 ];
 
-export const FREE_TEXT_MODELS = [
-  'qwen/qwen3-next-80b-a3b-instruct:free',
-  'nvidia/nemotron-3-super-120b-a12b:free',
-  'deepseek/deepseek-v4-flash:free',
-  'minimax/minimax-m2.5:free',
-];
+// Free models still kept as last-ditch backup if all Gemini paid fail (network outage etc.)
+export const FREE_VISION_MODELS = ['moonshotai/kimi-k2.6:free'];
+export const FREE_TEXT_MODELS = ['qwen/qwen3-next-80b-a3b-instruct:free'];
 
-export const PAID_VISION_MODELS = [
-  'google/gemma-3-4b-it',
-  'openai/gpt-5-nano',
-  'amazon/nova-lite-v1',
-  'google/gemma-4-26b-a4b-it',
-];
-
-export const PAID_TEXT_MODELS = [
-  'qwen/qwen3.5-9b',
-  'google/gemma-3-12b-it',
-  'openai/gpt-5-nano',
-];
+// All Gemini Flash variants handle both vision and text-only
+export const PAID_VISION_MODELS = [...GEMINI_LADDER];
+export const PAID_TEXT_MODELS = [...GEMINI_LADDER];
 
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -60,21 +53,34 @@ async function callOne(args: {
   messages: ChatMessage[];
   temperature: number;
 }): Promise<string> {
-  const resp = await fetch(API_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${args.apiKey}`,
-      'Content-Type': 'application/json',
-      'HTTP-Referer': 'https://ugc.aiceo.im',
-      'X-Title': 'UGC Prompt Builder',
-    },
-    body: JSON.stringify({
-      model: args.model,
-      messages: args.messages,
-      temperature: args.temperature,
-      max_tokens: 4096,
-    }),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30_000);
+  let resp: Response;
+  try {
+    resp = await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${args.apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://ugc.aiceo.im',
+        'X-Title': 'UGC Prompt Builder',
+      },
+      body: JSON.stringify({
+        model: args.model,
+        messages: args.messages,
+        temperature: args.temperature,
+        max_tokens: 4096,
+      }),
+      signal: controller.signal,
+    });
+  } catch (e: any) {
+    const isAbort = e?.name === 'AbortError';
+    const err: any = new Error(isAbort ? 'timeout 30s' : e?.message ?? 'network error');
+    err.status = isAbort ? 408 : 502;
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
   const body: any = await resp.json().catch(() => ({}));
   if (!resp.ok) {
     const msg = body?.error?.message || `HTTP ${resp.status}`;
@@ -142,7 +148,10 @@ export async function serverGenerateImagePrompt(args: {
     { role: 'system', content: args.systemPrompt },
     { role: 'user', content: userContent },
   ];
-  const models = args.allowPaid ? [...FREE_VISION_MODELS, ...PAID_VISION_MODELS] : FREE_VISION_MODELS;
+  // Gemini paid (cheapest first) → free backup
+  const models = args.allowPaid
+    ? [...PAID_VISION_MODELS, ...FREE_VISION_MODELS]
+    : [...FREE_VISION_MODELS, ...PAID_VISION_MODELS];
   return callWithRotation({
     apiKey: args.apiKey,
     models,
@@ -161,7 +170,9 @@ export async function serverGenerateVideoPrompt(args: {
     { role: 'system', content: args.systemPrompt },
     { role: 'user', content: args.userMessage },
   ];
-  const models = args.allowPaid ? [...FREE_TEXT_MODELS, ...PAID_TEXT_MODELS] : FREE_TEXT_MODELS;
+  const models = args.allowPaid
+    ? [...PAID_TEXT_MODELS, ...FREE_TEXT_MODELS]
+    : [...FREE_TEXT_MODELS, ...PAID_TEXT_MODELS];
   return callWithRotation({
     apiKey: args.apiKey,
     models,
