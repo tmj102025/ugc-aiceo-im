@@ -1,0 +1,56 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@font-face {
+  font-family: 'LINE Seed Sans TH';
+  src: url('/fonts/LINESeedSansTH_Rg.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'LINE Seed Sans TH';
+  src: url('/fonts/LINESeedSansTH_Bd.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+html, body { background: #0B0F0E; color: #E6F0EC; }
+body { font-family: 'LINE Seed Sans TH', system-ui, sans-serif; }
+
+input, textarea, select, button { font-family: inherit; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: #0F1413; }
+::-webkit-scrollbar-thumb { background: #1F2A28; border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: #2A3936; }
+
+.btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 font-bold transition-all;
+}
+.btn-primary {
+  @apply bg-brand text-bg hover:bg-brand-light active:scale-[0.98];
+}
+.btn-secondary {
+  @apply bg-bg-card text-ink border border-line hover:border-brand/40;
+}
+.btn-ghost {
+  @apply text-ink-dim hover:text-ink hover:bg-bg-card;
+}
+.input {
+  @apply w-full rounded-lg bg-bg-soft border border-line px-3 py-2.5 text-ink placeholder:text-ink-mute outline-none focus:border-brand/60 transition-colors;
+}
+.label {
+  @apply text-xs font-bold text-ink-dim tracking-wide;
+}
+.card {
+  @apply rounded-2xl bg-bg-card border border-line shadow-card;
+}
+.chip {
+  @apply inline-flex items-center gap-1.5 rounded-full bg-bg-soft border border-line px-2.5 py-1 text-[11px] text-ink-dim;
+}
+.chip-recommend {
+  @apply bg-brand/15 text-brand border-brand/30;
+}
