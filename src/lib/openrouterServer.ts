@@ -121,20 +121,23 @@ async function callWithRotation(args: {
 export async function serverGenerateImagePrompt(args: {
   apiKey: string;
   productImageDataUrl: string;
+  personImageDataUrl?: string;
   systemPrompt: string;
   userMessage: string;
   temperature?: number;
   allowPaid?: boolean;
 }): Promise<GenerateResult> {
+  const userContent: Array<
+    | { type: 'text'; text: string }
+    | { type: 'image_url'; image_url: { url: string } }
+  > = [{ type: 'image_url', image_url: { url: args.productImageDataUrl } }];
+  if (args.personImageDataUrl) {
+    userContent.push({ type: 'image_url', image_url: { url: args.personImageDataUrl } });
+  }
+  userContent.push({ type: 'text', text: args.userMessage });
   const messages: ChatMessage[] = [
     { role: 'system', content: args.systemPrompt },
-    {
-      role: 'user',
-      content: [
-        { type: 'image_url', image_url: { url: args.productImageDataUrl } },
-        { type: 'text', text: args.userMessage },
-      ],
-    },
+    { role: 'user', content: userContent },
   ];
   const models = args.allowPaid ? [...FREE_VISION_MODELS, ...PAID_VISION_MODELS] : FREE_VISION_MODELS;
   return callWithRotation({

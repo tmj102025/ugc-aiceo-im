@@ -5,6 +5,7 @@ import { authOptions } from '@/lib/authOptions';
 import { BUILT_IN_TEMPLATES } from '@/lib/data/promptTemplates';
 import { VIDEO_BUILT_IN_TEMPLATES } from '@/lib/data/videoPromptTemplates';
 import { COVER_COLOR_PRESETS } from '@/lib/data/coverColorPresets';
+import { pairedVideoFor } from '@/lib/data/imageToVideoMap';
 import {
   buildImageUserMessage,
   buildVideoUserMessage,
@@ -44,73 +45,79 @@ export async function POST(req: Request) {
   }
 
   const {
-    mode,
-    templateId,
+    imageTemplateId,
     productName,
     mainHeading,
     subHeading,
     productImageDataUrl,
+    personImageDataUrl,
     colorPresetId,
     gender,
     ageRange,
   } = body ?? {};
 
-  if (mode !== 'image' && mode !== 'video') {
-    return NextResponse.json({ error: 'invalid mode' }, { status: 400 });
-  }
   if (!productName || typeof productName !== 'string') {
     return NextResponse.json({ error: 'ขาดชื่อสินค้า' }, { status: 400 });
   }
-  if (mode === 'image' && (typeof productImageDataUrl !== 'string' || !productImageDataUrl.startsWith('data:image/'))) {
-    return NextResponse.json({ error: 'ภาพไม่ถูกต้อง (โหมดภาพต้องมีรูป)' }, { status: 400 });
+  if (typeof productImageDataUrl !== 'string' || !productImageDataUrl.startsWith('data:image/')) {
+    return NextResponse.json({ error: 'ต้องอัปโหลดรูปสินค้า' }, { status: 400 });
   }
+  const hasPersonImage =
+    typeof personImageDataUrl === 'string' && personImageDataUrl.startsWith('data:image/');
 
   const colorPreset = COVER_COLOR_PRESETS.find((p) => p.id === colorPresetId) ?? null;
   const ugc = { gender: (gender as Gender) ?? 'female', ageRange: String(ageRange ?? '25-29') };
 
+  const imgTplPicked = BUILT_IN_TEMPLATES[imageTemplateId] ?? BUILT_IN_TEMPLATES['ugc-review'];
+  const imgTpl = resolveImageTemplate(imgTplPicked, BUILT_IN_TEMPLATES);
+  const videoTemplateId = pairedVideoFor(imgTpl.id);
+  const vidTplPicked = VIDEO_BUILT_IN_TEMPLATES[videoTemplateId] ?? VIDEO_BUILT_IN_TEMPLATES['video-ugc'];
+  const vidTpl = resolveVideoTemplate(vidTplPicked, VIDEO_BUILT_IN_TEMPLATES);
+
+  const imageUserMessage = buildImageUserMessage(imgTpl, {
+    productName,
+    mainHeading,
+    subHeading,
+    hasPersonImage,
+    ugc,
+    colorPreset,
+  });
+  const videoUserMessage = buildVideoUserMessage(vidTpl, {
+    productName,
+    mainHeading,
+    subHeading,
+    hasPersonImage,
+    ugc,
+    colorPreset,
+  });
+
   try {
-    let result;
-    if (mode === 'image') {
-      const tpl = resolveImageTemplate(
-        BUILT_IN_TEMPLATES[templateId] ?? BUILT_IN_TEMPLATES['ugc-review'],
-        BUILT_IN_TEMPLATES,
-      );
-      const userMessage = buildImageUserMessage(tpl, {
-        productName,
-        mainHeading,
-        subHeading,
-        hasPersonImage: false,
-        ugc,
-        colorPreset,
-      });
-      result = await serverGenerateImagePrompt({
+    const [imageRes, videoRes] = await Promise.allSettled([
+      serverGenerateImagePrompt({
         apiKey,
         productImageDataUrl,
-        systemPrompt: tpl.systemPrompt ?? '',
-        userMessage,
-        temperature: tpl.settings.temperature ?? 0.7,
+        personImageDataUrl: hasPersonImage ? personImageDataUrl : undefined,
+        systemPrompt: imgTpl.systemPrompt ?? '',
+        userMessage: imageUserMessage,
+        temperature: imgTpl.settings.temperature ?? 0.7,
         allowPaid,
-      });
-    } else {
-      const tpl = resolveVideoTemplate(
-        VIDEO_BUILT_IN_TEMPLATES[templateId] ?? VIDEO_BUILT_IN_TEMPLATES['video-ugc'],
-        VIDEO_BUILT_IN_TEMPLATES,
-      );
-      const userMessage = buildVideoUserMessage(tpl, {
-        productName,
-        mainHeading,
-        subHeading,
-        hasPersonImage: false,
-        ugc,
-        colorPreset,
-      });
-      result = await serverGenerateVideoPrompt({
+      }),
+      serverGenerateVideoPrompt({
         apiKey,
-        systemPrompt: tpl.systemPrompt ?? '',
-        userMessage,
+        systemPrompt: vidTpl.systemPrompt ?? '',
+        userMessage: videoUserMessage,
         allowPaid,
-      });
-    }
+      }),
+    ]);
+
+    const image =
+      imageRes.status === 'fulfilled'
+        ? { text: imageRes.value.text, model: imageRes.value.model, error: null }
+        : { text: '', model: '', error: (imageRes.reason as Error)?.message ?? 'image gen failed' };
+    const video =
+      videoRes.status === 'fulfilled'
+        ? { text: videoRes.value.text, model: videoRes.value.model, error: null }
+        : { text: '', model: '', error: (videoRes.reason as Error)?.message ?? 'video gen failed' };
 
     ensureAdminAuth()
       .then(async () => {
@@ -125,13 +132,18 @@ export async function POST(req: Request) {
               generate_count: ((existing as any).generate_count ?? 0) + 1,
               last_generate_at: new Date().toISOString(),
             });
-        } catch {
-          // ignore tracking errors
-        }
+        } catch {}
       })
       .catch(() => {});
 
-    return NextResponse.json({ text: result.text, model: result.model });
+    return NextResponse.json({
+      image,
+      video,
+      imageTemplateId: imgTpl.id,
+      videoTemplateId: vidTpl.id,
+      imageTemplateName: imgTpl.name,
+      videoTemplateName: vidTpl.name,
+    });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message ?? 'gen failed' }, { status: 500 });
   }

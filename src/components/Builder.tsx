@@ -11,35 +11,38 @@ interface Props {
   user: { email: string; name: string; picture: string };
 }
 
-type Mode = 'image' | 'video';
-
 const AGE_RANGES = ['18-24', '25-29', '30-39', '40-49', '50-59', 'random'];
 
+interface PromptResult {
+  text: string;
+  model: string;
+  error: string | null;
+}
+
 export function Builder({ user }: Props) {
-  const [mode, setMode] = useState<Mode>('image');
   const [imageTemplateId, setImageTemplateId] = useState<string>('ugc-review');
-  const [videoTemplateId, setVideoTemplateId] = useState<string>('video-ugc');
   const [productName, setProductName] = useState('');
   const [mainHeading, setMainHeading] = useState('');
   const [subHeading, setSubHeading] = useState('');
   const [productImage, setProductImage] = useState<string>('');
+  const [personImage, setPersonImage] = useState<string>('');
   const [colorPresetId, setColorPresetId] = useState<string>('golden-triangle');
   const [gender, setGender] = useState<Gender>('female');
   const [ageRange, setAgeRange] = useState<string>('25-29');
-  const [output, setOutput] = useState('');
-  const [usedModel, setUsedModel] = useState('');
+  const [imageResult, setImageResult] = useState<PromptResult | null>(null);
+  const [videoResult, setVideoResult] = useState<PromptResult | null>(null);
+  const [pairedVideoName, setPairedVideoName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [history, setHistory] = useState<HistoryItem[]>([]);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const productFileRef = useRef<HTMLInputElement>(null);
+  const personFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setHistory(loadHistory());
   }, []);
 
-  const templateId = mode === 'image' ? imageTemplateId : videoTemplateId;
-
-  async function handleFile(file: File | null) {
+  async function handleProductFile(file: File | null) {
     if (!file) return;
     if (!file.type.startsWith('image/')) {
       setError('ไฟล์ที่อัปโหลดต้องเป็นรูปภาพ');
@@ -47,8 +50,21 @@ export function Builder({ user }: Props) {
     }
     setError('');
     try {
-      const dataUrl = await fileToDataUrl(file);
-      setProductImage(dataUrl);
+      setProductImage(await fileToDataUrl(file));
+    } catch {
+      setError('อ่านไฟล์ไม่สำเร็จ');
+    }
+  }
+
+  async function handlePersonFile(file: File | null) {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setError('ไฟล์ที่อัปโหลดต้องเป็นรูปภาพ');
+      return;
+    }
+    setError('');
+    try {
+      setPersonImage(await fileToDataUrl(file));
     } catch {
       setError('อ่านไฟล์ไม่สำเร็จ');
     }
@@ -60,48 +76,52 @@ export function Builder({ user }: Props) {
       setError('กรุณาใส่ชื่อสินค้า');
       return;
     }
-    if (mode === 'image' && !productImage) {
-      setError('โหมดภาพต้องอัปโหลดรูปสินค้า');
+    if (!productImage) {
+      setError('กรุณาอัปโหลดรูปสินค้า');
       return;
     }
     setLoading(true);
-    setUsedModel('');
+    setImageResult(null);
+    setVideoResult(null);
+    setPairedVideoName('');
     try {
-      let imageDataUrl: string | undefined;
-      if (mode === 'image' && productImage) {
-        imageDataUrl = await resizeImage(productImage);
-      }
+      const productResized = await resizeImage(productImage);
+      const personResized = personImage ? await resizeImage(personImage) : undefined;
+
       const resp = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          mode,
-          templateId,
+          imageTemplateId,
           productName,
           mainHeading,
           subHeading,
-          productImageDataUrl: imageDataUrl,
+          productImageDataUrl: productResized,
+          personImageDataUrl: personResized,
           colorPresetId,
           gender,
           ageRange,
         }),
       });
       const data = await resp.json();
-      if (!resp.ok) {
-        throw new Error(data?.error ?? `HTTP ${resp.status}`);
+      if (!resp.ok) throw new Error(data?.error ?? `HTTP ${resp.status}`);
+
+      setImageResult(data.image);
+      setVideoResult(data.video);
+      setPairedVideoName(data.videoTemplateName ?? '');
+
+      if (data.image?.text || data.video?.text) {
+        const item: HistoryItem = {
+          id: `h-${Date.now()}`,
+          ts: Date.now(),
+          type: 'image',
+          templateId: imageTemplateId,
+          productName,
+          prompt: `IMAGE:\n${data.image?.text ?? '(ล้มเหลว)'}\n\nVIDEO (${data.videoTemplateName ?? ''}):\n${data.video?.text ?? '(ล้มเหลว)'}`,
+        };
+        pushHistory(item);
+        setHistory(loadHistory());
       }
-      setOutput(data.text);
-      setUsedModel(data.model);
-      const item: HistoryItem = {
-        id: `h-${Date.now()}`,
-        ts: Date.now(),
-        type: mode,
-        templateId,
-        productName,
-        prompt: data.text,
-      };
-      pushHistory(item);
-      setHistory(loadHistory());
     } catch (e: any) {
       setError(e?.message ?? 'เกิดข้อผิดพลาด');
     } finally {
@@ -109,10 +129,10 @@ export function Builder({ user }: Props) {
     }
   }
 
-  async function copyOutput() {
-    if (!output) return;
+  async function copyText(text: string) {
+    if (!text) return;
     try {
-      await navigator.clipboard.writeText(output);
+      await navigator.clipboard.writeText(text);
     } catch {}
   }
 
@@ -138,44 +158,81 @@ export function Builder({ user }: Props) {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 py-6 grid grid-cols-1 lg:grid-cols-[400px_1fr] gap-5">
-        {/* Sidebar — controls */}
         <section className="card p-4 space-y-4">
-          <div>
-            <div className="label mb-2">รูปสินค้า {mode === 'image' && <span className="text-red-400">*</span>}</div>
-            <div
-              onClick={() => fileRef.current?.click()}
-              className="relative h-44 rounded-xl border-2 border-dashed border-line hover:border-brand/60 transition cursor-pointer overflow-hidden bg-bg-soft flex items-center justify-center"
-            >
-              {productImage ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={productImage} alt="product" className="w-full h-full object-contain" />
-              ) : (
-                <div className="text-center text-ink-dim">
-                  <div className="text-3xl mb-1">📦</div>
-                  <div className="text-sm font-bold">อัปโหลดรูปสินค้า</div>
-                  <div className="text-xs mt-0.5">jpg / png — ใช้เป็น reference ให้ Gemini วิเคราะห์</div>
-                </div>
-              )}
-              {productImage && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setProductImage('');
-                  }}
-                  className="absolute top-1.5 right-1.5 bg-black/60 hover:bg-black/80 text-white text-xs px-2 py-1 rounded"
-                >
-                  ลบ
-                </button>
-              )}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <div className="label mb-2">รูปสินค้า <span className="text-red-400">*</span></div>
+              <div
+                onClick={() => productFileRef.current?.click()}
+                className="relative h-32 rounded-xl border-2 border-dashed border-line hover:border-brand/60 cursor-pointer overflow-hidden bg-bg-soft flex items-center justify-center"
+              >
+                {productImage ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={productImage} alt="product" className="w-full h-full object-contain" />
+                ) : (
+                  <div className="text-center text-ink-dim text-xs">
+                    <div className="text-2xl mb-1">📦</div>
+                    <div className="font-bold">รูปสินค้า</div>
+                  </div>
+                )}
+                {productImage && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setProductImage('');
+                    }}
+                    className="absolute top-1 right-1 bg-black/60 hover:bg-black/80 text-white text-xs px-2 py-0.5 rounded"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+              <input
+                ref={productFileRef}
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={(e) => handleProductFile(e.target.files?.[0] ?? null)}
+              />
             </div>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*"
-              hidden
-              onChange={(e) => handleFile(e.target.files?.[0] ?? null)}
-            />
+
+            <div>
+              <div className="label mb-2">รูปคน <span className="text-ink-mute font-normal">(ใบหน้า — option)</span></div>
+              <div
+                onClick={() => personFileRef.current?.click()}
+                className="relative h-32 rounded-xl border-2 border-dashed border-line hover:border-brand/60 cursor-pointer overflow-hidden bg-bg-soft flex items-center justify-center"
+              >
+                {personImage ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={personImage} alt="person" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="text-center text-ink-dim text-xs">
+                    <div className="text-2xl mb-1">👤</div>
+                    <div className="font-bold">รูปคน</div>
+                  </div>
+                )}
+                {personImage && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPersonImage('');
+                    }}
+                    className="absolute top-1 right-1 bg-black/60 hover:bg-black/80 text-white text-xs px-2 py-0.5 rounded"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+              <input
+                ref={personFileRef}
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={(e) => handlePersonFile(e.target.files?.[0] ?? null)}
+              />
+            </div>
           </div>
 
           <div>
@@ -210,32 +267,8 @@ export function Builder({ user }: Props) {
           </div>
 
           <div>
-            <div className="label mb-1.5">ประเภท Prompt</div>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setMode('image')}
-                className={`btn ${mode === 'image' ? 'btn-primary' : 'btn-secondary'}`}
-              >
-                🖼️ ภาพ
-              </button>
-              <button
-                type="button"
-                onClick={() => setMode('video')}
-                className={`btn ${mode === 'video' ? 'btn-primary' : 'btn-secondary'}`}
-              >
-                🎬 วิดีโอ
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <div className="label mb-1.5">Template</div>
-            <TemplatePicker
-              mode={mode}
-              value={templateId}
-              onChange={(id) => (mode === 'image' ? setImageTemplateId(id) : setVideoTemplateId(id))}
-            />
+            <div className="label mb-1.5">สไตล์ (จับคู่ video อัตโนมัติ)</div>
+            <TemplatePicker mode="image" value={imageTemplateId} onChange={setImageTemplateId} />
           </div>
 
           <div>
@@ -258,11 +291,7 @@ export function Builder({ user }: Props) {
             </div>
             <div>
               <div className="label mb-1.5">อายุ</div>
-              <select
-                className="input"
-                value={ageRange}
-                onChange={(e) => setAgeRange(e.target.value)}
-              >
+              <select className="input" value={ageRange} onChange={(e) => setAgeRange(e.target.value)}>
                 {AGE_RANGES.map((a) => (
                   <option key={a} value={a}>
                     {a === 'random' ? 'สุ่ม (18-55)' : a}
@@ -283,40 +312,32 @@ export function Builder({ user }: Props) {
             disabled={loading}
             className="btn btn-primary w-full text-base py-3 disabled:opacity-60"
           >
-            {loading ? '⏳ กำลังสร้าง prompt…' : '⚡ สร้าง Prompt'}
+            {loading ? '⏳ กำลังสร้าง image + video prompt…' : '⚡ สร้าง Prompt (ภาพ + วิดีโอ)'}
           </button>
         </section>
 
-        {/* Right — output */}
         <section className="space-y-5">
-          <div className="card p-4">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <h2 className="font-bold text-lg">Prompt (ภาษาอังกฤษ)</h2>
-                <p className="text-xs text-ink-dim mt-0.5">
-                  คัดลอกแล้วนำไปวางใน Sora · Veo · MJ · Imagen · Kling
-                  {usedModel && <> · ใช้ <span className="text-brand font-mono">{usedModel}</span></>}
-                </p>
-              </div>
-              <button
-                onClick={copyOutput}
-                disabled={!output}
-                className="btn btn-secondary !py-2 !text-sm disabled:opacity-50"
-              >
-                📋 คัดลอก
-              </button>
-            </div>
-            <textarea
-              className="input min-h-[280px] font-mono text-[13px] leading-relaxed"
-              value={output}
-              onChange={(e) => setOutput(e.target.value)}
-              placeholder={loading ? 'กำลังให้ Gemini เขียน prompt ภาษาอังกฤษ context-aware…' : 'กดปุ่ม “สร้าง Prompt” เพื่อให้ Gemini วิเคราะห์รูปสินค้า + template + โทนสี → ออกเป็น prompt EN พร้อมใช้'}
-            />
-          </div>
+          <OutputCard
+            title="🖼️ Image Prompt"
+            subtitle="วางใน Sora · Midjourney · Imagen · Flux"
+            result={imageResult}
+            onCopy={() => imageResult && copyText(imageResult.text)}
+            loading={loading}
+          />
+
+          <OutputCard
+            title={`🎬 Video Prompt ${pairedVideoName ? `· ${pairedVideoName}` : ''}`}
+            subtitle="วางใน Veo · Kling · Runway · Hailuo (มีบทพูดไทย)"
+            result={videoResult}
+            onCopy={() => videoResult && copyText(videoResult.text)}
+            loading={loading}
+          />
 
           <div className="card p-4">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="font-bold">ประวัติ <span className="text-ink-dim text-sm font-normal">({history.length})</span></h3>
+              <h3 className="font-bold">
+                ประวัติ <span className="text-ink-dim text-sm font-normal">({history.length})</span>
+              </h3>
               {history.length > 0 && (
                 <button
                   onClick={() => {
@@ -330,18 +351,19 @@ export function Builder({ user }: Props) {
               )}
             </div>
             {history.length === 0 ? (
-              <div className="text-sm text-ink-dim py-6 text-center">ยังไม่มีประวัติ — prompt ที่สร้างไว้จะเก็บอัตโนมัติ (สูงสุด 30 รายการ)</div>
+              <div className="text-sm text-ink-dim py-6 text-center">
+                ยังไม่มีประวัติ — prompt ที่สร้างจะเก็บอัตโนมัติ (สูงสุด 30 รายการ)
+              </div>
             ) : (
               <ul className="space-y-1.5 max-h-72 overflow-y-auto">
                 {history.map((h) => (
                   <li key={h.id}>
                     <button
-                      onClick={() => setOutput(h.prompt)}
+                      onClick={() => copyText(h.prompt)}
                       className="w-full text-left p-2.5 rounded-lg hover:bg-bg-soft border border-transparent hover:border-line transition"
                     >
                       <div className="flex items-center gap-2 mb-0.5">
-                        <span className="chip !py-0 !px-1.5 !text-[10px]">{h.type === 'image' ? '🖼️ ภาพ' : '🎬 วิดีโอ'}</span>
-                        <span className="text-xs text-ink-dim">{new Date(h.ts).toLocaleString('th-TH')}</span>
+                        <span className="chip !py-0 !px-1.5 !text-[10px]">{new Date(h.ts).toLocaleString('th-TH')}</span>
                       </div>
                       <div className="text-sm font-bold truncate">{h.productName}</div>
                       <div className="text-[12px] text-ink-dim line-clamp-2">{h.prompt}</div>
@@ -353,7 +375,55 @@ export function Builder({ user }: Props) {
           </div>
         </section>
       </main>
+    </div>
+  );
+}
 
+function OutputCard({
+  title,
+  subtitle,
+  result,
+  onCopy,
+  loading,
+}: {
+  title: string;
+  subtitle: string;
+  result: PromptResult | null;
+  onCopy: () => void;
+  loading: boolean;
+}) {
+  const hasError = result?.error;
+  const hasText = !!result?.text;
+  return (
+    <div className="card p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <h2 className="font-bold text-lg">{title}</h2>
+          <p className="text-xs text-ink-dim mt-0.5">
+            {subtitle}
+            {result?.model && <> · <span className="text-brand font-mono">{result.model}</span></>}
+          </p>
+        </div>
+        <button
+          onClick={onCopy}
+          disabled={!hasText}
+          className="btn btn-secondary !py-2 !text-sm disabled:opacity-50"
+        >
+          📋 คัดลอก
+        </button>
+      </div>
+      {hasError ? (
+        <div className="rounded-lg bg-red-500/10 border border-red-500/30 text-red-300 text-sm p-3">
+          {result?.error}
+        </div>
+      ) : (
+        <textarea
+          className="input min-h-[180px] font-mono text-[13px] leading-relaxed"
+          value={result?.text ?? ''}
+          readOnly
+          placeholder={loading ? 'กำลังให้ AI เขียน…' : 'กดปุ่ม "สร้าง Prompt" ทางซ้ายเพื่อสร้าง'}
+        />
+      )}
     </div>
   );
 }
