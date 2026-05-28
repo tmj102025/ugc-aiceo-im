@@ -2,32 +2,33 @@
 
 const API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
+// Verified against OpenRouter /api/v1/models — May 2026 snapshot
 export const FREE_VISION_MODELS = [
-  'google/gemini-2.5-flash-exp:free',
-  'qwen/qwen2.5-vl-72b-instruct:free',
-  'meta-llama/llama-3.2-90b-vision-instruct:free',
-  'mistralai/mistral-small-3.1-24b-instruct:free',
+  'google/gemma-4-31b-it:free',
+  'moonshotai/kimi-k2.6:free',
+  'google/gemma-4-26b-a4b-it:free',
+  'nvidia/nemotron-nano-12b-v2-vl:free',
+  'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
 ];
 
 export const FREE_TEXT_MODELS = [
-  'google/gemini-2.5-flash-exp:free',
-  'meta-llama/llama-3.3-70b-instruct:free',
-  'deepseek/deepseek-chat-v3:free',
-  'qwen/qwen-2.5-72b-instruct:free',
+  'qwen/qwen3-next-80b-a3b-instruct:free',
+  'nvidia/nemotron-3-super-120b-a12b:free',
+  'deepseek/deepseek-v4-flash:free',
+  'minimax/minimax-m2.5:free',
 ];
 
 export const PAID_VISION_MODELS = [
-  'google/gemini-2.5-flash-lite',
-  'google/gemini-2.5-flash',
-  'meta-llama/llama-3.2-11b-vision-instruct',
-  'openai/gpt-4o-mini',
+  'google/gemma-3-4b-it',
+  'openai/gpt-5-nano',
+  'amazon/nova-lite-v1',
+  'google/gemma-4-26b-a4b-it',
 ];
 
 export const PAID_TEXT_MODELS = [
-  'google/gemini-2.5-flash-lite',
-  'meta-llama/llama-3.3-70b-instruct',
-  'deepseek/deepseek-chat',
-  'google/gemini-2.5-flash',
+  'qwen/qwen3.5-9b',
+  'google/gemma-3-12b-it',
+  'openai/gpt-5-nano',
 ];
 
 interface ChatMessage {
@@ -47,7 +48,9 @@ export interface GenerateResult {
 function isRetryable(status: number, msg: string): boolean {
   if (status === 429 || status === 408 || status === 502 || status === 503 || status === 504) return true;
   if (status === 404 || status === 402) return true;
-  if (/rate.?limit|quota|temporar(?:y|ily)/i.test(msg)) return true;
+  // Model-level errors: try next model
+  if (status === 400 && /valid model|not.+available|deprecated|unknown model|does not support/i.test(msg)) return true;
+  if (/rate.?limit|quota|temporar(?:y|ily)|unavailable|overloaded/i.test(msg)) return true;
   return false;
 }
 
