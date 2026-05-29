@@ -154,6 +154,9 @@ export function Builder({ user }: Props) {
             <span className="chip">AiCEO</span>
           </div>
           <div className="flex items-center gap-2">
+            <a href="/gems" className="btn btn-ghost !py-2 !text-sm" title="สร้าง Gems ใน Gemini">
+              ✨ Gems
+            </a>
             {user.picture ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={user.picture} alt="" className="w-8 h-8 rounded-full border border-line" />
